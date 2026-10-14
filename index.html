@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Beeston Hockey 2026/27</title>
+<meta name="description" content="Unofficial fixtures, results and league tables for every Beeston Hockey Club team, 2026/27.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600;700&display=swap">
+<script src="vendor/d3.min.js"></script>
+<style>
+:root {
+  --font-anthropic-sans: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-anthropic-serif: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --cds-font-size-caption: 13px; --cds-font-size-body: 15px; --cds-font-size-heading: 18px; --cds-font-size-title: 34px;
+  --cds-font-weight-medium: 600;
+  --cds-gap-xs: 4px; --cds-gap-sm: 8px; --cds-gap-md: 16px; --cds-gap-lg: 24px; --cds-gap-xl: 40px;
+  --cds-pad-xs: 4px; --cds-pad-sm: 8px; --cds-pad-md: 12px; --cds-pad-lg: 20px; --cds-pad-xl: 32px;
+  --cds-radius: 8px; --cds-dur-slow: 240ms;
+  --color-bg: #fbfaf6; --color-fg: #17150f; --color-fg-muted: #6a6556; --color-panel: #ffffff; --color-border-line: #e3dfd2;
+  --color-ok: #2f7a3f; --color-warn: #a07800; --color-bad: #b23a2e; --gold: #d9a400;
+  --cds-chart-grid: #f0ece0; --cds-chart-muted: #cfc9b8;
+  --cds-surface-popover: #ffffff; --cds-border: #e3dfd2; --cds-shadow-popover: 0 6px 20px rgba(23,21,15,.12); --cds-text-secondary: #6a6556;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --color-bg: #15140f; --color-fg: #f1ede1; --color-fg-muted: #a8a290; --color-panel: #1d1b15; --color-border-line: #2e2b22;
+  --color-ok: #6cc07c; --color-warn: #e2b33a; --color-bad: #ee7d70; --gold: #f0bd1d;
+  --cds-chart-grid: #26241c; --cds-chart-muted: #4a4636;
+  --cds-surface-popover: #1d1b15; --cds-border: #2e2b22; --cds-shadow-popover: 0 6px 20px rgba(0,0,0,.5); --cds-text-secondary: #a8a290;
+  color-scheme: dark; } }
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--color-bg); color: var(--color-fg); font-family: var(--font-anthropic-sans); font-size: var(--cds-font-size-body); line-height: 1.5; -webkit-text-size-adjust: 100%; }
+.site-stripe { height: 8px; background: repeating-linear-gradient(-45deg, var(--gold) 0 12px, var(--color-fg) 12px 24px); }
+#dash-root { max-width: 72rem; margin-inline: auto; padding-inline: max(16px, env(safe-area-inset-left)); padding-block: 24px 16px; }
+#dash-root .bhc .hdr h1 { text-transform: uppercase; letter-spacing: .01em; font-weight: 700; }
+@media (max-width: 520px) { #dash-root .bhc .hdr h1 { font-size: 28px; } }
+.dash-skeleton { color: transparent !important; background: var(--cds-chart-grid); border-radius: 4px; }
+.site-foot { max-width: 72rem; margin-inline: auto; padding-inline: 16px; padding-block: 8px 40px; color: var(--color-fg-muted); font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.site-foot a { color: inherit; }
+.load-error { max-width: 72rem; margin: 24px auto; padding: 16px; color: var(--color-bad); }
+</style>
+<script>
+/* Minimal stand-in for the Claude dashboard runtime, so the same page code runs on a static site. */
+(function () {
+  const files = { fixtures: 'data/fixtures.json', tables: 'data/league-tables.json', teams: 'data/teams.json' };
+  const store = {}; const calcs = {}; const fns = [];
+  Object.keys(files).forEach((k) => { store[k] = { status: 'loading', data: [] }; });
+  let params = { tab: 'team', team: 'beeston-m1-mens', group: 'All', week: null };
+  let queued = false;
+  const run = () => { queued = false; computeCalcs(); fns.forEach((fn) => { try { fn(); } catch (e) { console.error(e); } }); };
+  const schedule = () => { if (!queued) { queued = true; Promise.resolve().then(run); } };
+  function computeCalcs() {
+    Object.entries(calcs).forEach(([id, c]) => {
+      const ins = c.inputs.map((i) => store[i] || (calcs[i] && calcs[i].result));
+      if (ins.every((x) => x && x.status === 'ok')) {
+        if (!c.result || c.result.status !== 'ok') c.result = { status: 'ok', data: c.fn(...ins.map((x) => x.data)) };
+      } else c.result = { status: ins.some((x) => x && x.status === 'error') ? 'error' : 'loading', data: [] };
+    });
+  }
+  window.dash = {
+    data: (id) => store[id] || (calcs[id] && calcs[id].result) || { status: 'missing', data: [] },
+    onData: (fn) => { fns.push(fn); try { fn(); } catch (e) { console.error(e); } },
+    calc: (id, c) => { calcs[id] = { ...c, result: null }; },
+    params: () => ({ ...params }),
+    setParams: (p) => { params = { ...params, ...p }; schedule(); },
+    resetParams: () => {},
+    setLink: (name) => { try { history.replaceState(null, '', '#' + name); } catch (e) {} },
+    refresh: () => {},
+    colors: [],
+  };
+  Object.entries(files).forEach(([id, url]) => {
+    fetch(url, { cache: 'no-cache' }).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then((rows) => { store[id] = { status: 'ok', data: rows }; schedule(); })
+      .catch(() => { store[id] = { status: 'error', data: [] }; schedule();
+        const el = document.getElementById('load-error'); if (el) el.hidden = false; });
+  });
+  let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(schedule, 150); });
+})();
+</script>
+</head>
+<body>
+<div class="site-stripe" aria-hidden="true"></div>
+<p id="load-error" class="load-error" hidden>Couldn't load the fixtures data. Try refreshing the page.</p>
+<div id="dash-root">
+<style>
+#dash-root .bhc { font-family: var(--font-anthropic-sans); display: flex; flex-direction: column; gap: var(--cds-gap-lg); }
+.bhc .hdr { display: flex; flex-direction: column; gap: var(--cds-gap-xs); }
+.bhc .hdr h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; text-wrap: balance; }
+.bhc .hdr p { margin: 0; color: var(--color-fg-muted); font-size: var(--cds-font-size-body); max-width: 70ch; }
+.bhc .hdr p b { color: var(--color-fg); font-weight: 600; }
+.bhc .tabs { display: flex; gap: var(--cds-gap-xs); border-bottom: 1px solid var(--color-border-line); flex-wrap: wrap; }
+.bhc .tab { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent; padding: var(--cds-pad-sm) var(--cds-pad-md); font: inherit; font-size: var(--cds-font-size-body); color: var(--color-fg-muted); cursor: pointer; margin-bottom: -1px; }
+.bhc .tab[aria-selected="true"] { color: var(--color-fg); border-bottom-color: var(--color-fg); font-weight: 600; }
+.bhc .tab:focus-visible, .bhc button:focus-visible, .bhc select:focus-visible { outline: 2px solid var(--color-fg); outline-offset: 2px; }
+.bhc .bar { display: flex; flex-wrap: wrap; gap: var(--cds-gap-sm); align-items: center; }
+.bhc select { font: inherit; font-size: var(--cds-font-size-body); padding: var(--cds-pad-xs) var(--cds-pad-sm); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); background: var(--color-panel); color: var(--color-fg); max-width: 100%; }
+.bhc .btn { font: inherit; font-size: var(--cds-font-size-body); padding: var(--cds-pad-xs) var(--cds-pad-sm); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); background: var(--color-panel); color: var(--color-fg); cursor: pointer; }
+.bhc .btn:disabled { opacity: .4; cursor: default; }
+.bhc .chip { font: inherit; font-size: var(--cds-font-size-caption); padding: 2px var(--cds-pad-sm); border: 1px solid var(--color-border-line); border-radius: 999px; background: transparent; color: var(--color-fg-muted); cursor: pointer; }
+.bhc .chip[aria-pressed="true"] { background: var(--color-fg); color: var(--color-bg); border-color: var(--color-fg); }
+.bhc .card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); display: flex; flex-direction: column; gap: var(--cds-gap-md); min-width: 0; }
+.bhc .card h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; }
+.bhc .card .note { margin: 0; color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+.bhc .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: var(--cds-gap-md); }
+.bhc .stats { display: flex; flex-wrap: wrap; gap: var(--cds-gap-lg); }
+.bhc .stat { display: flex; flex-direction: column; gap: 2px; min-width: 4.5rem; }
+.bhc .stat .k { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+.bhc .stat .v { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.bhc .stat .v small { font-family: var(--font-anthropic-sans); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin-left: 2px; }
+.bhc .form { display: flex; gap: 4px; }
+.bhc .res { display: inline-flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem; border-radius: 4px; font-size: var(--cds-font-size-caption); font-weight: 600; color: var(--color-bg); background: var(--cds-chart-muted); }
+.bhc .res.W { background: var(--color-ok); }
+.bhc .res.L { background: var(--color-bad); }
+.bhc .res.D { background: var(--color-warn); }
+.bhc .twrap { overflow-x: auto; }
+.bhc table { width: 100%; border-collapse: collapse; font-size: var(--cds-font-size-body); font-variant-numeric: tabular-nums; }
+.bhc th { text-align: left; font-weight: 500; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); white-space: nowrap; }
+.bhc td { padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); vertical-align: middle; }
+.bhc tr:last-child td { border-bottom: 0; }
+.bhc td.num, .bhc th.num { text-align: right; }
+.bhc td.c, .bhc th.c { text-align: center; }
+.bhc tr.past td { color: var(--color-fg); }
+.bhc tr.future td { color: var(--color-fg-muted); }
+.bhc tr.future td.opp { color: var(--color-fg); }
+.bhc tr.bye td { color: var(--color-fg-muted); font-style: italic; }
+.bhc tr.us td { font-weight: 600; background: var(--cds-chart-grid); }
+.bhc tr.click { cursor: pointer; }
+.bhc tr.click:hover td { background: var(--cds-chart-grid); }
+.bhc tr.sel td { background: var(--cds-chart-grid); }
+.bhc .ha { display: inline-block; font-size: var(--cds-font-size-caption); padding: 0 6px; border-radius: 4px; border: 1px solid var(--color-border-line); color: var(--color-fg-muted); }
+.bhc .ha.H { color: var(--color-fg); border-color: var(--color-fg); }
+.bhc .wk-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--cds-gap-sm); }
+.bhc .wk-title { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; }
+.bhc .chart { position: relative; min-height: 150px; }
+.bhc .chart svg { display: block; }
+.bhc .chart .bar-hit { cursor: pointer; }
+.bhc .tip { position: absolute; pointer-events: none; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); border-radius: var(--cds-radius); box-shadow: var(--cds-shadow-popover); padding: var(--cds-pad-xs) var(--cds-pad-sm); font-size: var(--cds-font-size-caption); white-space: nowrap; z-index: 2; }
+.bhc .tip .d { color: var(--cds-text-secondary); }
+.bhc .legend { display: flex; flex-wrap: wrap; gap: var(--cds-gap-md); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+.bhc .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--sw); }
+.bhc .muted { color: var(--color-fg-muted); }
+.bhc .empty { color: var(--color-fg-muted); font-size: var(--cds-font-size-body); margin: 0; }
+.bhc a { color: inherit; }
+.bhc [data-dash-source-state=refreshing] { opacity: .5; transition: opacity var(--cds-dur-slow); }
+.bhc [data-dash-source-state=empty] { color: transparent; }
+@media (max-width: 640px) { .bhc .hide-sm { display: none; } .bhc .form { gap: 2px; } .bhc td .res { width: 1.2rem; height: 1.2rem; font-size: 11px; } .bhc td:first-child { white-space: nowrap; } }
+</style>
+
+<div class="bhc">
+  <header class="hdr" id="top">
+    <h1>Beeston Hockey · 2026/27</h1>
+    <p id="takeaway">Season so far: <b class="dash-skeleton" data-source="season" data-field="results">—</b> results across all teams, <b data-source="season" data-field="won">—</b> won, <b data-source="season" data-field="drawn">—</b> drawn, <b data-source="season" data-field="lost">—</b> lost. <span data-source="season" data-field="upcoming">—</span> fixtures still to play.</p>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-team" data-tab="team">Team</button>
+    <button class="tab" role="tab" id="tab-week" data-tab="week">Weekend</button>
+    <button class="tab" role="tab" id="tab-tables" data-tab="tables">League tables</button>
+  </div>
+
+  <!-- TEAM -->
+  <section id="team" class="pane" role="tabpanel" aria-labelledby="tab-team">
+    <div style="display:flex;flex-direction:column;gap:var(--cds-gap-md)">
+      <div class="bar"><label class="muted" for="team-sel">Team</label><select id="team-sel" class="team-sel" data-source="teams"></select></div>
+      <div class="card" id="team-summary">
+        <div>
+          <h2 id="ts-name">—</h2>
+          <p class="note" id="ts-league">—</p>
+        </div>
+        <div class="stats" id="ts-stats"></div>
+        <div id="ts-form-wrap" style="display:flex;gap:var(--cds-gap-sm);align-items:center;flex-wrap:wrap"><span class="muted" style="font-size:var(--cds-font-size-caption)">Form (league, latest last)</span><span class="form" id="ts-form"></span></div>
+        <p class="note" id="ts-next"></p>
+      </div>
+      <div class="card" id="team-fixtures">
+        <div><h2>Fixtures and results</h2><p class="note">All competitions. Scores show Beeston first. TBC where the league has not set a time yet.</p></div>
+        <div class="twrap">
+          <table id="team-table" data-source="fixtures" data-row-key="key">
+            <thead><tr>
+              <th data-field="date">Date</th>
+              <th data-field="opponent">Opponent</th>
+              <th data-field="ha" class="c">H/A</th>
+              <th data-field="result" class="c">Res</th>
+              <th data-field="score" class="c">Score</th>
+              <th data-field="time">Time</th>
+              <th data-field="venue" class="hide-sm">Venue</th>
+              <th data-field="competition" class="hide-sm">Competition</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- WEEKEND -->
+  <section id="week" class="pane" role="tabpanel" aria-labelledby="tab-week" hidden>
+    <div style="display:flex;flex-direction:column;gap:var(--cds-gap-md)">
+      <div class="card" id="season-chart">
+        <div><h2>Every weekend this season</h2><p class="note">Team matches per weekend, played results stacked under fixtures still to come. Click a bar to open that weekend.</p></div>
+        <div class="legend"><span style="--sw:var(--color-ok)">Won</span><span style="--sw:var(--color-warn)">Drawn</span><span style="--sw:var(--color-bad)">Lost</span><span style="--sw:var(--cds-chart-muted)">To play</span></div>
+        <div class="chart" id="wk-chart" data-source="weekends"></div>
+      </div>
+      <div class="card" id="week-card">
+        <div class="wk-head">
+          <div>
+            <p class="note" style="margin:0">Weekend of</p>
+            <h2 class="wk-title" id="wk-title">—</h2>
+          </div>
+          <div class="bar">
+            <button class="btn" id="wk-prev" aria-label="Previous weekend">‹ Prev</button>
+            <select id="wk-sel" aria-label="Weekend"></select>
+            <button class="btn" id="wk-next" aria-label="Next weekend">Next ›</button>
+          </div>
+        </div>
+        <div class="stats" id="wk-stats"></div>
+        <div class="bar" id="wk-groups" role="group" aria-label="Show teams"></div>
+        <div id="wk-tables" style="display:flex;flex-direction:column;gap:var(--cds-gap-lg)"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TABLES -->
+  <section id="tables" class="pane" role="tabpanel" aria-labelledby="tab-tables" hidden>
+    <div style="display:flex;flex-direction:column;gap:var(--cds-gap-md)">
+      <div class="card" id="standings-card">
+        <div><h2>Where every Beeston team stands</h2><p class="note">League position for each team in a league. Click a row to open its full table.</p></div>
+        <div class="twrap">
+          <table id="standings-table" data-source="standings" data-row-key="team">
+            <thead><tr>
+              <th data-field="label">Team</th>
+              <th data-field="leagueName" class="hide-sm">League</th>
+              <th data-field="pos" class="num">Pos</th>
+              <th data-field="size" class="num hide-sm">of</th>
+              <th data-field="played" class="num">P</th>
+              <th data-field="goalDiff" class="num">GD</th>
+              <th data-field="points" class="num">Pts</th>
+              <th data-field="form">Form</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card" id="league-card">
+        <div class="wk-head">
+          <div><h2 id="lg-title">—</h2><p class="note" id="lg-note">Beeston highlighted.</p></div>
+          <div class="bar"><label class="muted" for="lg-sel">Team</label><select id="lg-sel" class="team-sel" data-source="teams"></select></div>
+        </div>
+        <div class="twrap">
+          <table id="league-table" data-source="tables" data-row-key="league,team">
+            <thead><tr>
+              <th data-field="pos" class="num">#</th>
+              <th data-field="team">Team</th>
+              <th data-field="played" class="num">P</th>
+              <th data-field="won" class="num">W</th>
+              <th data-field="drawn" class="num">D</th>
+              <th data-field="lost" class="num">L</th>
+              <th data-field="goalsFor" class="num hide-sm">GF</th>
+              <th data-field="goalsAgainst" class="num hide-sm">GA</th>
+              <th data-field="goalDiff" class="num">GD</th>
+              <th data-field="points" class="num">Pts</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="note">Positions and points are as England Hockey publishes them, including any deductions. Drawn junior games settled by shoot-out show as D here but count as a win or loss in the table.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+const enc = (s) => String(s).replace(/%/g, '%25').replace(/&/g, '%26').replace(/=/g, '%3D').replace(/,/g, '%2C');
+const fmtDay = d3.utcFormat('%a %-d %b');
+const fmtLong = d3.utcFormat('%a %-d %B %Y');
+const fmtShort = d3.utcFormat('%-d %b');
+const todayIso = new Date().toISOString().slice(0, 10);
+
+dash.calc('season', {
+  inputs: ['fixtures'],
+  title: 'Season totals',
+  description: 'Counts played results by Beeston outcome and fixtures still to play, across every team (byes excluded).',
+  fn: (fixtures) => {
+    const r = fixtures.filter((f) => f.status === 'result');
+    return [{
+      results: r.length,
+      won: r.filter((f) => f.result === 'W').length,
+      drawn: r.filter((f) => f.result === 'D').length,
+      lost: r.filter((f) => f.result === 'L').length,
+      upcoming: fixtures.filter((f) => f.status === 'fixture').length,
+    }];
+  },
+});
+
+dash.calc('weekends', {
+  inputs: ['fixtures'],
+  title: 'Matches by weekend',
+  description: 'Per weekend (Saturday date): team matches, Beeston wins, draws, losses and matches still to play. Byes excluded; a Beeston v Beeston game counts once per team.',
+  fn: (fixtures) => {
+    const by = d3.group(fixtures.filter((f) => f.status !== 'bye'), (f) => f.weekend);
+    return [...by].sort((a, b) => d3.ascending(a[0], b[0])).map(([weekend, fx]) => ({
+      weekend,
+      matches: fx.length,
+      won: fx.filter((f) => f.result === 'W').length,
+      drawn: fx.filter((f) => f.result === 'D').length,
+      lost: fx.filter((f) => f.result === 'L').length,
+      toPlay: fx.filter((f) => f.status !== 'result').length,
+      home: fx.filter((f) => f.ha === 'H').length,
+    }));
+  },
+});
+
+dash.calc('standings', {
+  inputs: ['teams', 'tables', 'fixtures'],
+  title: 'Beeston league standings',
+  description: 'Each Beeston team’s row in its league table, with league size and its last five league results.',
+  fn: (teams, tables, fixtures) => teams.filter((t) => t.league).map((t) => {
+    const lg = tables.filter((r) => r.league === t.league);
+    const row = lg.find((r) => r.team === t.clubName);
+    const form = fixtures.filter((f) => f.team === t.team && f.league === t.league && f.status === 'result')
+      .sort((a, b) => d3.ascending(a.date, b.date)).slice(-5).map((f) => f.result).join('');
+    return { team: t.team, label: t.label, group: t.group, league: t.league, leagueName: t.leagueName,
+      pos: row.pos, size: lg.length, played: row.played, won: row.won, drawn: row.drawn, lost: row.lost,
+      goalsFor: row.goalsFor, goalsAgainst: row.goalsAgainst, goalDiff: row.goalDiff, points: row.points, form };
+  }),
+});
+
+// ---------- defaults & controls ----------
+
+const tabs = [...document.querySelectorAll('.bhc .tab')];
+tabs.forEach((b) => b.addEventListener('click', () => { dash.setParams({ tab: b.dataset.tab }); dash.setLink(b.dataset.tab); }));
+const linked = location.hash.slice(1);
+if (['team', 'week', 'tables'].includes(linked)) dash.setParams({ tab: linked });
+
+document.querySelectorAll('.team-sel').forEach((s) => s.addEventListener('change', () => dash.setParams({ team: s.value })));
+const wkSel = document.getElementById('wk-sel');
+wkSel.addEventListener('change', () => dash.setParams({ week: wkSel.value }));
+document.getElementById('wk-prev').addEventListener('click', () => step(-1));
+document.getElementById('wk-next').addEventListener('click', () => step(1));
+let weekList = [];
+function step(d) {
+  const i = weekList.indexOf(dash.params().week);
+  const j = Math.max(0, Math.min(weekList.length - 1, i + d));
+  if (weekList[j]) dash.setParams({ week: weekList[j] });
+}
+document.getElementById('standings-table').addEventListener('click', (e) => {
+  const tr = e.target.closest('tr[data-key]');
+  if (tr) dash.setParams({ team: tr.dataset.key });
+});
+
+const GROUPS = ['Men', 'Women', 'Juniors', 'Masters'];
+function fillTeamSelects(teams) {
+  document.querySelectorAll('.team-sel').forEach((sel) => {
+    const onlyLeague = sel.id === 'lg-sel';
+    sel.replaceChildren(...GROUPS.map((g) => {
+      const og = document.createElement('optgroup'); og.label = g;
+      teams.filter((t) => t.group === g && (!onlyLeague || t.league)).forEach((t) => og.append(new Option(t.label, t.team)));
+      return og;
+    }).filter((og) => og.children.length));
+  });
+}
+
+function cell(tr, text, cls) { const td = tr.insertCell(); td.textContent = text ?? ''; if (cls) td.className = cls; return td; }
+function resChip(td, r) { if (!r) return; const s = document.createElement('span'); s.className = 'res ' + r; s.textContent = r; td.append(s); }
+function haChip(td, v) { const s = document.createElement('span'); s.className = 'ha ' + v; s.textContent = v; td.append(s); }
+
+function fixtureRow(tbody, f, firstCol) {
+  const tr = tbody.insertRow();
+  tr.dataset.key = f.key;
+  tr.className = f.status === 'bye' ? 'bye' : f.status === 'result' ? 'past' : 'future';
+  if (firstCol === 'team') cell(tr, f.teamLabel); else cell(tr, fmtDay(new Date(f.date)));
+  cell(tr, f.opponent, 'opp');
+  haChip(cell(tr, '', 'c'), f.ha);
+  resChip(cell(tr, '', 'c'), f.result);
+  cell(tr, f.score, 'c');
+  cell(tr, f.time ?? (f.status === 'fixture' ? 'TBC' : ''));
+  cell(tr, f.venue, 'hide-sm');
+  if (firstCol === 'team') cell(tr, f.note, 'hide-sm'); else cell(tr, f.competition + (f.note ? ' · ' + f.note : ''), 'hide-sm');
+  return tr;
+}
+
+function stat(parent, k, v, attrs, small) {
+  const d = document.createElement('div'); d.className = 'stat';
+  const kk = document.createElement('span'); kk.className = 'k'; kk.textContent = k;
+  const vv = document.createElement('span'); vv.className = 'v';
+  const num = document.createElement('span'); num.textContent = v;
+  Object.entries(attrs || {}).forEach(([a, b]) => num.setAttribute(a, b));
+  vv.append(num);
+  if (small) { const s = document.createElement('small'); s.textContent = small; vv.append(s); }
+  d.append(kk, vv); parent.append(d);
+}
+
+// ---------- weekend chart ----------
+function drawWeekChart(rows, sel) {
+  const box = document.getElementById('wk-chart');
+  box.replaceChildren();
+  if (!rows.length) return;
+  const W = Math.max(280, box.clientWidth), H = 150, m = { t: 8, r: 4, b: 24, l: 28 };
+  const x = d3.scaleBand(rows.map((r) => r.weekend), [m.l, W - m.r]).padding(0.25);
+  const y = d3.scaleLinear([0, d3.max(rows, (r) => r.matches)], [H - m.b, m.t]).nice();
+  const svg = d3.select(box).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('role', 'img').attr('aria-label', 'Team matches per weekend');
+  svg.append('g').selectAll('line').data(y.ticks(4)).join('line')
+    .attr('x1', m.l).attr('x2', W - m.r).attr('y1', (d) => y(d)).attr('y2', (d) => y(d)).attr('stroke', 'var(--cds-chart-grid)');
+  svg.append('g').selectAll('text').data(y.ticks(4)).join('text')
+    .attr('x', m.l - 6).attr('y', (d) => y(d)).attr('dy', '0.32em').attr('text-anchor', 'end')
+    .attr('fill', 'var(--color-fg-muted)').style('font-size', 'var(--cds-font-size-caption)').text((d) => d);
+  const keys = [['won', 'var(--color-ok)'], ['drawn', 'var(--color-warn)'], ['lost', 'var(--color-bad)'], ['toPlay', 'var(--cds-chart-muted)']];
+  const bw = Math.min(32, x.bandwidth());
+  const g = svg.append('g').selectAll('g').data(rows).join('g').attr('transform', (r) => `translate(${x(r.weekend) + (x.bandwidth() - bw) / 2},0)`);
+  g.each(function (r) {
+    let acc = 0;
+    keys.forEach(([k, c]) => {
+      if (!r[k]) return;
+      d3.select(this).append('rect').attr('x', 0).attr('width', bw)
+        .attr('y', y(acc + r[k])).attr('height', Math.max(0, y(acc) - y(acc + r[k]) - 1)).attr('rx', 2)
+        .attr('fill', c).attr('opacity', r.weekend === sel ? 1 : 0.75);
+      acc += r[k];
+    });
+  });
+  // selected marker
+  if (x(sel) !== undefined) {
+    svg.append('rect').attr('x', x(sel) - 2).attr('width', x.bandwidth() + 4).attr('y', m.t - 4).attr('height', H - m.b - m.t + 6)
+      .attr('fill', 'none').attr('stroke', 'var(--color-fg)').attr('stroke-width', 1.5).attr('rx', 4);
+  }
+  // month labels at first weekend of each month
+  const firsts = rows.filter((r, i) => i === 0 || r.weekend.slice(0, 7) !== rows[i - 1].weekend.slice(0, 7));
+  svg.append('g').selectAll('text').data(firsts).join('text')
+    .attr('x', (r) => x(r.weekend)).attr('y', H - 6).attr('fill', 'var(--color-fg-muted)')
+    .style('font-size', 'var(--cds-font-size-caption)').text((r) => d3.utcFormat('%b')(new Date(r.weekend)));
+  const tip = d3.select(box).append('div').attr('class', 'tip').style('display', 'none');
+  svg.append('g').selectAll('rect').data(rows).join('rect').attr('class', 'bar-hit')
+    .attr('x', (r) => x(r.weekend) - x.step() * x.paddingInner() / 2).attr('width', x.step())
+    .attr('y', m.t).attr('height', H - m.b - m.t).attr('fill', 'transparent')
+    .on('click', (e, r) => dash.setParams({ week: r.weekend }))
+    .on('mousemove', (e, r) => {
+      const [px, py] = d3.pointer(e, box);
+      tip.style('display', null).html('');
+      tip.append('div').attr('class', 'd').text('Weekend of ' + fmtShort(new Date(r.weekend)));
+      tip.append('div').text(r.toPlay === r.matches ? `${r.matches} fixtures to play` : `${r.matches} matches · W ${r.won} D ${r.drawn} L ${r.lost}` + (r.toPlay ? ` · ${r.toPlay} to play` : ''));
+      const tw = tip.node().offsetWidth;
+      tip.style('left', Math.min(Math.max(0, px - tw / 2), box.clientWidth - tw) + 'px').style('top', Math.max(0, py - 48) + 'px');
+    })
+    .on('mouseleave', () => tip.style('display', 'none'));
+}
+
+// ---------- main draw ----------
+dash.onData(() => {
+  const p = dash.params();
+  const F = dash.data('fixtures'), T = dash.data('teams'), L = dash.data('tables');
+  const S = dash.data('season'), WK = dash.data('weekends'), ST = dash.data('standings');
+
+  // tabs
+  tabs.forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === p.tab)));
+  document.querySelectorAll('.bhc .pane').forEach((s) => { s.hidden = s.id !== p.tab; });
+
+  // header
+  document.querySelectorAll('#takeaway [data-field]').forEach((el) => {
+    el.classList.toggle('dash-skeleton', S.status === 'loading');
+    el.textContent = S.status === 'ok' ? d3.format(',')(S.data[0][el.dataset.field]) : '—';
+  });
+
+  const okAll = F.status === 'ok' && T.status === 'ok' && L.status === 'ok';
+  if (T.status === 'ok') {
+    if (!document.querySelector('#team-sel option')) fillTeamSelects(T.data);
+    document.querySelectorAll('.team-sel').forEach((s) => { if (s !== document.activeElement) s.value = p.team; });
+  }
+  if (!okAll) return;
+  const fixtures = F.data, teams = T.data, tables = L.data;
+  const team = teams.find((t) => t.team === p.team) || teams[0];
+
+  // weekend default
+  weekList = [...new Set(fixtures.map((f) => f.weekend))].sort();
+  if (!p.week || !weekList.includes(p.week)) {
+    const dayBefore = d3.utcFormat('%Y-%m-%d')(d3.utcDay.offset(new Date(todayIso), -1));
+    dash.setParams({ week: weekList.find((w) => w >= dayBefore) || weekList[weekList.length - 1] });
+    return;
+  }
+
+  // ===== TEAM TAB =====
+  if (p.tab === 'team') {
+    const fx = fixtures.filter((f) => f.team === team.team).sort((a, b) => d3.ascending(a.date, b.date));
+    document.getElementById('ts-name').textContent = team.label + ' · ' + team.clubName;
+    const lgName = team.leagueName || '';
+    document.getElementById('ts-league').textContent = team.league ? lgName : (lgName ? lgName + ' (cup, no league table)' : 'No competition entered yet');
+    const stats = document.getElementById('ts-stats'); stats.replaceChildren();
+    const formEl = document.getElementById('ts-form'); formEl.replaceChildren();
+    const sRow = ST.status === 'ok' ? ST.data.find((r) => r.team === team.team) : null;
+    if (team.league) {
+      const row = tables.find((r) => r.league === team.league && r.team === team.clubName);
+      const w = 'league=' + enc(team.league) + '&team=' + enc(team.clubName);
+      if (sRow) stat(stats, 'Position', sRow.pos, { 'data-source': 'standings', 'data-field': 'pos', 'data-where': 'team=' + enc(team.team) }, 'of ' + sRow.size);
+      stat(stats, 'Points', row.points, { 'data-source': 'tables', 'data-field': 'points', 'data-where': w });
+      stat(stats, 'Played', row.played, { 'data-source': 'tables', 'data-field': 'played', 'data-where': w });
+      stat(stats, 'Won', row.won, { 'data-source': 'tables', 'data-field': 'won', 'data-where': w });
+      stat(stats, 'Drawn', row.drawn, { 'data-source': 'tables', 'data-field': 'drawn', 'data-where': w });
+      stat(stats, 'Lost', row.lost, { 'data-source': 'tables', 'data-field': 'lost', 'data-where': w });
+      stat(stats, 'Goal diff', row.goalDiff, { 'data-source': 'tables', 'data-field': 'goalDiff', 'data-where': w });
+      document.getElementById('ts-form-wrap').hidden = !(sRow && sRow.form);
+      if (sRow) [...sRow.form].forEach((r) => { const s = document.createElement('span'); s.className = 'res ' + r; s.textContent = r; formEl.append(s); });
+    } else {
+      document.getElementById('ts-form-wrap').hidden = true;
+      const played = fx.filter((f) => f.status === 'result');
+      const p0 = document.createElement('p'); p0.className = 'empty';
+      p0.textContent = played.length ? `${played.length} played in cup competition so far.` : 'No results yet.';
+      stats.append(p0);
+    }
+    const next = fx.find((f) => f.status === 'fixture' && f.date >= todayIso);
+    const nx = document.getElementById('ts-next');
+    nx.replaceChildren();
+    if (next) {
+      nx.append('Next: ');
+      const b = document.createElement('b'); b.textContent = `${next.opponent} (${next.ha === 'H' ? 'home' : 'away'})`; nx.append(b);
+      nx.append(`, ${fmtLong(new Date(next.date))}${next.time ? ' at ' + next.time : ''}${next.venue ? ', ' + next.venue : ''}.`);
+    } else nx.textContent = 'No more fixtures listed.';
+    const tb = document.querySelector('#team-table tbody'); tb.replaceChildren();
+    fx.forEach((f) => fixtureRow(tb, f, 'date'));
+  }
+
+  // ===== WEEK TAB =====
+  if (p.tab === 'week') {
+    if (WK.status === 'ok') drawWeekChart(WK.data, p.week);
+    if (wkSel.options.length !== weekList.length) wkSel.replaceChildren(...weekList.map((w) => new Option(fmtLong(new Date(w)), w)));
+    wkSel.value = p.week;
+    const i = weekList.indexOf(p.week);
+    document.getElementById('wk-prev').disabled = i <= 0;
+    document.getElementById('wk-next').disabled = i >= weekList.length - 1;
+    const sat = new Date(p.week);
+    document.getElementById('wk-title').textContent = `${fmtShort(sat)} – ${fmtShort(d3.utcDay.offset(sat, 1))} ${d3.utcFormat('%Y')(sat)}`;
+    const ws = document.getElementById('wk-stats'); ws.replaceChildren();
+    const wr = WK.status === 'ok' ? WK.data.find((r) => r.weekend === p.week) : null;
+    if (wr) {
+      const wh = 'weekend=' + p.week;
+      stat(ws, 'Matches', wr.matches, { 'data-source': 'weekends', 'data-field': 'matches', 'data-where': wh });
+      stat(ws, 'At home', wr.home, { 'data-source': 'weekends', 'data-field': 'home', 'data-where': wh });
+      if (wr.toPlay < wr.matches) {
+        stat(ws, 'Won', wr.won, { 'data-source': 'weekends', 'data-field': 'won', 'data-where': wh });
+        stat(ws, 'Drawn', wr.drawn, { 'data-source': 'weekends', 'data-field': 'drawn', 'data-where': wh });
+        stat(ws, 'Lost', wr.lost, { 'data-source': 'weekends', 'data-field': 'lost', 'data-where': wh });
+      }
+      if (wr.toPlay) stat(ws, 'To play', wr.toPlay, { 'data-source': 'weekends', 'data-field': 'toPlay', 'data-where': wh });
+    }
+    const gb = document.getElementById('wk-groups'); gb.replaceChildren();
+    ['All', ...GROUPS].forEach((g) => {
+      const b = document.createElement('button'); b.className = 'chip'; b.textContent = g === 'All' ? 'All teams' : g;
+      b.setAttribute('aria-pressed', String(p.group === g)); b.addEventListener('click', () => dash.setParams({ group: g })); gb.append(b);
+    });
+    const wt = document.getElementById('wk-tables'); wt.replaceChildren();
+    const wfx = fixtures.filter((f) => f.weekend === p.week && (p.group === 'All' || f.group === p.group));
+    const shown = GROUPS.filter((g) => (p.group === 'All' || p.group === g));
+    let any = false;
+    shown.forEach((g) => {
+      const rows = wfx.filter((f) => f.group === g).sort((a, b) => d3.ascending(a.order, b.order) || d3.ascending(a.date, b.date));
+      if (!rows.length) return;
+      any = true;
+      const sec = document.createElement('div'); sec.style.cssText = 'display:flex;flex-direction:column;gap:var(--cds-gap-xs)';
+      const h = document.createElement('h3'); h.textContent = g; h.style.cssText = 'margin:0;font-size:var(--cds-font-size-body);font-weight:600';
+      const wrap = document.createElement('div'); wrap.className = 'twrap';
+      const t = document.createElement('table'); t.id = 'wk-' + g.toLowerCase(); t.dataset.source = 'fixtures'; t.dataset.rowKey = 'key';
+      const hr = t.createTHead().insertRow();
+      [['teamLabel', 'Team'], ['opponent', 'Opponent'], ['ha', 'H/A', 'c'], ['result', 'Res', 'c'], ['score', 'Score', 'c'], ['time', 'Time'], ['venue', 'Venue', 'hide-sm'], ['note', 'Note', 'hide-sm']].forEach(([f, l, c]) => {
+        const th = document.createElement('th'); th.dataset.field = f; th.textContent = l; if (c) th.className = c; hr.append(th);
+      });
+      const tb = t.createTBody();
+      rows.forEach((f) => { const tr = fixtureRow(tb, f, 'team'); if (f.date !== p.week) tr.cells[0].append(' (Sun)'); });
+      wrap.append(t); sec.append(h, wrap); wt.append(sec);
+    });
+    if (!any) { const e = document.createElement('p'); e.className = 'empty'; e.textContent = 'No fixtures for these teams this weekend.'; wt.append(e); }
+  }
+
+  // ===== TABLES TAB =====
+  if (p.tab === 'tables') {
+    const sb = document.querySelector('#standings-table tbody'); sb.replaceChildren();
+    if (ST.status === 'ok') ST.data.forEach((r) => {
+      const tr = sb.insertRow(); tr.dataset.key = r.team; tr.className = 'click' + (r.team === team.team ? ' sel' : '');
+      cell(tr, r.label); cell(tr, r.leagueName, 'hide-sm'); cell(tr, r.pos, 'num'); cell(tr, r.size, 'num hide-sm');
+      cell(tr, r.played, 'num'); cell(tr, d3.format('+')(r.goalDiff).replace('+0', '0'), 'num'); cell(tr, r.points, 'num');
+      const fc = cell(tr, ''); const fw = document.createElement('span'); fw.className = 'form'; [...r.form].forEach((x) => resChip(fw, x)); fc.append(fw);
+    });
+    const lt = document.getElementById('lg-title');
+    const body = document.querySelector('#league-table tbody'); body.replaceChildren();
+    const lg = team.league ? team : teams.find((t) => t.league);
+    if (lg !== team) document.getElementById('lg-note').textContent = `${team.label} has no league table yet, showing ${lg.label}.`;
+    else document.getElementById('lg-note').textContent = `${team.label} highlighted. Source: England Hockey.`;
+    document.getElementById('lg-sel').value = lg.team;
+    lt.textContent = lg.leagueName;
+    tables.filter((r) => r.league === lg.league).sort((a, b) => a.pos - b.pos).forEach((r) => {
+      const tr = body.insertRow(); tr.dataset.key = enc(r.league) + ',' + enc(r.team);
+      if (r.team === lg.clubName) tr.className = 'us';
+      cell(tr, r.pos, 'num'); cell(tr, r.team); cell(tr, r.played, 'num'); cell(tr, r.won, 'num'); cell(tr, r.drawn, 'num'); cell(tr, r.lost, 'num');
+      cell(tr, r.goalsFor, 'num hide-sm'); cell(tr, r.goalsAgainst, 'num hide-sm'); cell(tr, d3.format('+')(r.goalDiff).replace('+0', '0'), 'num'); cell(tr, r.points, 'num');
+    });
+  }
+});
+
+setTimeout(() => { const el = document.getElementById(location.hash.slice(1)); if (el && !el.classList.contains('pane')) el.scrollIntoView(); }, 0);
+</script>
+</div>
+<footer class="site-foot">
+  <p>Unofficial. Not produced by Beeston Hockey Club. Fixtures, results and tables come from <a href="https://www.englandhockey.co.uk/clubs/beeston-hc">England Hockey</a>.</p>
+  <p id="updated">&nbsp;</p>
+</footer>
+<script>
+fetch('data/meta.json', { cache: 'no-cache' }).then((r) => r.json()).then((m) => {
+  const d = new Date(m.updated);
+  document.getElementById('updated').textContent = 'Last updated ' + d.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) + '.';
+}).catch(() => {});
+</script>
+</body>
+</html>
