@@ -44,7 +44,8 @@ body { background: var(--color-bg); color: var(--color-fg); font-family: var(--f
 <script>
 /* Minimal stand-in for the Claude dashboard runtime, so the same page code runs on a static site. */
 (function () {
-  const files = { fixtures: 'data/fixtures.json', tables: 'data/league-tables.json', teams: 'data/teams.json' };
+  const files = { fixtures: 'data/fixtures.json', tables: 'data/league-tables.json', teams: 'data/teams.json', matches: 'data/matches.json' };
+  const optional = new Set(['matches']);
   const store = {}; const calcs = {}; const fns = [];
   Object.keys(files).forEach((k) => { store[k] = { status: 'loading', data: [] }; });
   let params = { tab: 'team', team: 'beeston-m1-mens', group: 'All', week: null };
@@ -73,7 +74,8 @@ body { background: var(--color-bg); color: var(--color-fg); font-family: var(--f
   Object.entries(files).forEach(([id, url]) => {
     fetch(url, { cache: 'no-cache' }).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then((rows) => { store[id] = { status: 'ok', data: rows }; schedule(); })
-      .catch(() => { store[id] = { status: 'error', data: [] }; schedule();
+      .catch(() => { if (optional.has(id)) { store[id] = { status: 'ok', data: [] }; schedule(); return; }
+        store[id] = { status: 'error', data: [] }; schedule();
         const el = document.getElementById('load-error'); if (el) el.hidden = false; });
   });
   let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(schedule, 150); });
@@ -146,6 +148,50 @@ body { background: var(--color-bg); color: var(--color-fg); font-family: var(--f
 .bhc [data-dash-source-state=refreshing] { opacity: .5; transition: opacity var(--cds-dur-slow); }
 .bhc [data-dash-source-state=empty] { color: transparent; }
 @media (max-width: 640px) { .bhc .hide-sm { display: none; } .bhc .form { gap: 2px; } .bhc td .res { width: 1.2rem; height: 1.2rem; font-size: 11px; } .bhc td:first-child { white-space: nowrap; } }
+.bhc td .more { color: var(--color-fg-muted); font-weight: 600; }
+.bhc tr.has-match:focus-visible td { outline: 2px solid var(--color-fg); outline-offset: -2px; }
+.bhc input[type=search] { font: inherit; font-size: var(--cds-font-size-body); padding: var(--cds-pad-xs) var(--cds-pad-sm); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); background: var(--color-panel); color: var(--color-fg); min-width: 0; flex: 1 1 10rem; max-width: 18rem; }
+.bhc .pl-scroll { max-height: 34rem; overflow: auto; }
+.bhc .pl-scroll thead th { position: sticky; top: 0; background: var(--color-panel); z-index: 1; }
+.bhc th[data-sort] { cursor: pointer; user-select: none; }
+.bhc th[aria-sort="descending"]::after { content: " ↓"; }
+.bhc th[aria-sort="ascending"]::after { content: " ↑"; }
+.bhc .tchip { display: inline-block; font-size: var(--cds-font-size-caption); padding: 0 6px; margin: 1px 2px 1px 0; border-radius: 4px; border: 1px solid var(--color-border-line); color: var(--color-fg-muted); white-space: nowrap; }
+.bhc .cards { display: inline-flex; gap: 3px; align-items: center; justify-content: flex-end; }
+.cd { display: inline-block; width: 9px; height: 12px; border-radius: 2px; vertical-align: -1px; }
+#md-body { display: flex; flex-direction: column; gap: 16px; }
+.cd.GC { background: #3f9a4f; } .cd.YC { background: #e6b800; } .cd.RC { background: #c8382b; }
+.bhc .pd-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--cds-gap-sm); align-items: baseline; }
+.bhc .pd-head h2 { font-family: var(--font-anthropic-serif); font-weight: 700; font-size: var(--cds-font-size-title); line-height: 1.1; }
+.bhc .linkbtn { font: inherit; background: none; border: 0; padding: 0; color: var(--color-fg-muted); text-decoration: underline; cursor: pointer; }
+/* match dialog */
+.match-dlg { border: 1px solid var(--color-border-line); border-radius: 12px; padding: 0; width: min(46rem, calc(100vw - 24px)); max-height: calc(100dvh - 32px); background: var(--color-panel); color: var(--color-fg); box-shadow: var(--cds-shadow-popover); font-family: var(--font-anthropic-sans); }
+.match-dlg::backdrop { background: rgba(10, 9, 6, .55); }
+.md-inner { position: relative; padding: 20px; display: flex; flex-direction: column; gap: 18px; }
+.md-close { position: absolute; top: 8px; right: 10px; font: inherit; font-size: 26px; line-height: 1; background: none; border: 0; color: var(--color-fg-muted); cursor: pointer; padding: 4px 8px; }
+.md-meta { font-size: 13px; color: var(--color-fg-muted); padding-right: 32px; }
+.md-score { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; }
+.md-score .tn { font-weight: 600; font-size: 17px; line-height: 1.2; }
+.md-score .tn.away { text-align: right; }
+.md-score .tn.us { color: var(--color-fg); } .md-score .tn.them { color: var(--color-fg-muted); }
+.md-score .sc { font-family: var(--font-anthropic-serif); font-weight: 700; font-size: 44px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.md-h { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--color-fg-muted); margin: 0 0 6px; }
+.md-goals { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.md-goal { display: grid; grid-template-columns: 1fr 3rem 1fr; gap: 8px; align-items: baseline; }
+.md-goal .min { text-align: center; color: var(--color-fg-muted); font-variant-numeric: tabular-nums; }
+.md-goal .r { text-align: right; }
+.md-goal .gt { color: var(--color-fg-muted); font-size: 12px; }
+.md-lineups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 18px; }
+.md-lineup ol { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+.md-lineup li { display: grid; grid-template-columns: 2.6rem 1fr auto; gap: 6px; padding: 4px 0; border-bottom: 1px solid var(--color-border-line); align-items: center; }
+.md-lineup li:last-child { border-bottom: 0; }
+.md-lineup .no { color: var(--color-fg-muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+.md-lineup .nm.wh { color: var(--color-fg-muted); font-style: italic; }
+.md-lineup .tag { font-size: 10px; font-weight: 700; border: 1px solid var(--color-border-line); border-radius: 3px; padding: 0 3px; margin-left: 4px; color: var(--color-fg-muted); }
+.md-lineup .ev { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; color: var(--color-fg-muted); white-space: nowrap; }
+.md-lineup .ball { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--color-fg); }
+.md-foot { font-size: 12px; color: var(--color-fg-muted); }
+.md-foot a { color: inherit; }
 </style>
 
 <div class="bhc">
@@ -158,6 +204,7 @@ body { background: var(--color-bg); color: var(--color-fg); font-family: var(--f
     <button class="tab" role="tab" id="tab-team" data-tab="team">Team</button>
     <button class="tab" role="tab" id="tab-week" data-tab="week">Weekend</button>
     <button class="tab" role="tab" id="tab-tables" data-tab="tables">League tables</button>
+    <button class="tab" role="tab" id="tab-players" data-tab="players">Players</button>
   </div>
 
   <!-- TEAM -->
@@ -172,9 +219,10 @@ body { background: var(--color-bg); color: var(--color-fg); font-family: var(--f
         <div class="stats" id="ts-stats"></div>
         <div id="ts-form-wrap" style="display:flex;gap:var(--cds-gap-sm);align-items:center;flex-wrap:wrap"><span class="muted" style="font-size:var(--cds-font-size-caption)">Form (league, latest last)</span><span class="form" id="ts-form"></span></div>
         <p class="note" id="ts-next"></p>
+        <p class="note" id="ts-scorers" hidden></p>
       </div>
       <div class="card" id="team-fixtures">
-        <div><h2>Fixtures and results</h2><p class="note">All competitions. Scores show Beeston first. TBC where the league has not set a time yet.</p></div>
+        <div><h2>Fixtures and results</h2><p class="note">All competitions. Scores show Beeston first. TBC where the league has not set a time yet. Click a result marked › to see line-ups and scorers.</p></div>
         <div class="twrap">
           <table id="team-table" data-source="fixtures" data-row-key="key">
             <thead><tr>
@@ -268,7 +316,44 @@ body { background: var(--color-bg); color: var(--color-fg); font-family: var(--f
       </div>
     </div>
   </section>
+
+  <!-- PLAYERS -->
+  <section id="players" class="pane" role="tabpanel" aria-labelledby="tab-players" hidden>
+    <div style="display:flex;flex-direction:column;gap:var(--cds-gap-md)">
+      <div class="card" id="players-card">
+        <div><h2>Players</h2><p class="note" id="pl-note">Appearances, goals and cards for the adult teams, from England Hockey match sheets. Click a player to see their games.</p></div>
+        <div class="bar">
+          <label class="muted" for="pl-team">Team</label><select id="pl-team"></select>
+          <input id="pl-search" type="search" placeholder="Search players" aria-label="Search players">
+          <button class="chip" id="pl-multi" aria-pressed="false">Played for 2+ teams</button>
+        </div>
+        <div class="twrap pl-scroll">
+          <table id="pl-table">
+            <thead><tr>
+              <th data-sort="name">Player</th>
+              <th data-sort="teamsCount" class="hide-sm">Teams</th>
+              <th data-sort="apps" class="num">Apps</th>
+              <th data-sort="goals" class="num">Goals</th>
+              <th data-sort="FG" class="num hide-sm" title="Field goals">FG</th>
+              <th data-sort="PC" class="num hide-sm" title="Penalty corners">PC</th>
+              <th data-sort="PS" class="num hide-sm" title="Penalty strokes">PS</th>
+              <th data-sort="cards" class="num">Cards</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card" id="player-detail" hidden></div>
+    </div>
+  </section>
 </div>
+
+<dialog id="match-dlg" class="match-dlg" aria-labelledby="md-title">
+  <div class="md-inner">
+    <button class="md-close" id="md-close" aria-label="Close">×</button>
+    <div id="md-body"></div>
+  </div>
+</dialog>
 
 <script>
 const enc = (s) => String(s).replace(/%/g, '%25').replace(/&/g, '%26').replace(/=/g, '%3D').replace(/,/g, '%2C');
@@ -331,7 +416,7 @@ dash.calc('standings', {
 const tabs = [...document.querySelectorAll('.bhc .tab')];
 tabs.forEach((b) => b.addEventListener('click', () => { dash.setParams({ tab: b.dataset.tab }); dash.setLink(b.dataset.tab); }));
 const linked = location.hash.slice(1);
-if (['team', 'week', 'tables'].includes(linked)) dash.setParams({ tab: linked });
+if (['team', 'week', 'tables', 'players'].includes(linked)) dash.setParams({ tab: linked });
 
 document.querySelectorAll('.team-sel').forEach((s) => s.addEventListener('change', () => dash.setParams({ team: s.value })));
 const wkSel = document.getElementById('wk-sel');
@@ -373,7 +458,15 @@ function fixtureRow(tbody, f, firstCol) {
   cell(tr, f.opponent, 'opp');
   haChip(cell(tr, '', 'c'), f.ha);
   resChip(cell(tr, '', 'c'), f.result);
-  cell(tr, f.score, 'c');
+  const sc = cell(tr, f.score, 'c');
+  const mt = f.fixtureId && window.bhcMatchById && window.bhcMatchById[f.fixtureId];
+  if (mt && mt.teams && mt.teams.length) {
+    tr.classList.add('click', 'has-match'); tr.tabIndex = 0; tr.title = 'Line-ups and scorers';
+    const more = document.createElement('span'); more.className = 'more'; more.textContent = ' ›'; more.setAttribute('aria-hidden', 'true'); sc.append(more);
+    const open = () => window.openMatch(mt.id, f.team);
+    tr.addEventListener('click', open);
+    tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+  }
   cell(tr, f.time ?? (f.status === 'fixture' ? 'TBC' : ''));
   cell(tr, f.venue, 'hide-sm');
   if (firstCol === 'team') cell(tr, f.note, 'hide-sm'); else cell(tr, f.competition + (f.note ? ' · ' + f.note : ''), 'hide-sm');
@@ -449,6 +542,8 @@ dash.onData(() => {
   const p = dash.params();
   const F = dash.data('fixtures'), T = dash.data('teams'), L = dash.data('tables');
   const S = dash.data('season'), WK = dash.data('weekends'), ST = dash.data('standings');
+  const MT = dash.data('matches');
+  window.bhcMatchById = MT.status === 'ok' ? Object.fromEntries(MT.data.map((m) => [m.id, m])) : {};
 
   // tabs
   tabs.forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === p.tab)));
@@ -513,6 +608,10 @@ dash.onData(() => {
       const b = document.createElement('b'); b.textContent = `${next.opponent} (${next.ha === 'H' ? 'home' : 'away'})`; nx.append(b);
       nx.append(`, ${fmtLong(new Date(next.date))}${next.time ? ' at ' + next.time : ''}${next.venue ? ', ' + next.venue : ''}.`);
     } else nx.textContent = 'No more fixtures listed.';
+    const tsc = document.getElementById('ts-scorers');
+    const top = window.bhcPlayerStats ? window.bhcPlayerStats(team.team).filter((x) => x.goals > 0).slice(0, 5) : [];
+    tsc.hidden = !top.length;
+    tsc.textContent = top.length ? 'Top scorers: ' + top.map((x) => `${x.name} ${x.goals}`).join(', ') + '.' : '';
     const tb = document.querySelector('#team-table tbody'); tb.replaceChildren();
     fx.forEach((f) => fixtureRow(tb, f, 'date'));
   }
@@ -594,6 +693,246 @@ dash.onData(() => {
 });
 
 setTimeout(() => { const el = document.getElementById(location.hash.slice(1)); if (el && !el.classList.contains('pane')) el.scrollIntoView(); }, 0);
+</script>
+<script>
+(() => {
+  const GOAL = new Set(['FG', 'PC', 'PS']);
+  const GOAL_LABEL = { FG: 'Field goal', PC: 'Penalty corner', PS: 'Penalty stroke' };
+  const CARD_LABEL = { GC: 'Green card', YC: 'Yellow card', RC: 'Red card' };
+  const fmtD = d3.utcFormat('%a %-d %b');
+  const keyOf = (n) => n.toLowerCase().replace(/\s+/g, ' ').trim();
+  const nice = (n) => (n === n.toLowerCase() || n === n.toUpperCase())
+    ? n.toLowerCase().replace(/(^|[\s'-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()) : n;
+  let teamsById = {};
+  let players = [];   // one row per Beeston player (named only)
+  let sortKey = 'goals', sortDir = -1, selected = null;
+
+  // ---------- build player stats from match sheets ----------
+  function build(matches, teams) {
+    teamsById = Object.fromEntries(teams.map((t) => [t.team, t]));
+    const map = new Map();
+    for (const m of matches) {
+      for (const side of m.teams || []) {
+        const teamId = m.beeston && m.beeston[side.side];
+        if (!teamId) continue;
+        for (const p of side.players) {
+          if (!p.name) continue;
+          const k = keyOf(p.name);
+          let r = map.get(k);
+          if (!r) { r = { key: k, names: {}, apps: [], }; map.set(k, r); }
+          r.names[p.name] = (r.names[p.name] || 0) + 1;
+          r.apps.push({ match: m, side: side.side, team: teamId, p });
+        }
+      }
+    }
+    players = [...map.values()].map((r) => {
+      const best = Object.entries(r.names).sort((a, b) => (/[a-z]/.test(b[0]) && /[A-Z]/.test(b[0]) ? 1 : 0) - (/[a-z]/.test(a[0]) && /[A-Z]/.test(a[0]) ? 1 : 0) || b[1] - a[1])[0][0];
+      r.name = nice(best);
+      r.apps.sort((a, b) => d3.ascending(a.match.date, b.match.date));
+      return r;
+    });
+  }
+
+  function statsFor(r, teamFilter) {
+    const apps = teamFilter ? r.apps.filter((a) => a.team === teamFilter) : r.apps;
+    const ev = apps.flatMap((a) => a.p.events);
+    const c = (t) => ev.filter((e) => e.type === t).length;
+    const teamSet = [...new Set(r.apps.map((a) => a.team))];
+    return { key: r.key, name: r.name, apps: apps.length, goals: ev.filter((e) => GOAL.has(e.type)).length,
+      FG: c('FG'), PC: c('PC'), PS: c('PS'), GC: c('GC'), YC: c('YC'), RC: c('RC'), cards: c('GC') + c('YC') * 2 + c('RC') * 3,
+      teams: teamSet, teamsCount: teamSet.length };
+  }
+
+  // exposed for the Team tab's "Top scorers" line
+  window.bhcPlayerStats = (teamId) => players.map((r) => statsFor(r, teamId)).filter((x) => x.apps > 0)
+    .sort((a, b) => b.goals - a.goals || b.apps - a.apps || d3.ascending(a.name, b.name));
+
+  const teamOrder = (id) => { const t = teamsById[id]; return t ? (t.group === 'Men' ? 0 : 1) * 100 + t.order : 999; };
+  const teamLabel = (id) => (teamsById[id] ? teamsById[id].label : id);
+
+  // ---------- Players tab ----------
+  const selTeam = document.getElementById('pl-team');
+  const search = document.getElementById('pl-search');
+  const multi = document.getElementById('pl-multi');
+  selTeam.addEventListener('change', () => dash.setParams({ plTeam: selTeam.value || null }));
+  search.addEventListener('input', () => drawTable());
+  multi.addEventListener('click', () => { multi.setAttribute('aria-pressed', String(multi.getAttribute('aria-pressed') !== 'true')); drawTable(); });
+  document.querySelectorAll('#pl-table th[data-sort]').forEach((th) => th.addEventListener('click', () => {
+    const k = th.dataset.sort;
+    if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = k === 'name' ? 1 : -1; }
+    drawTable();
+  }));
+  document.querySelector('#pl-table tbody').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-key]'); if (!tr) return;
+    selected = tr.dataset.key; drawTable(); drawDetail();
+    document.getElementById('player-detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+
+  function cardsCell(td, s) {
+    const w = document.createElement('span'); w.className = 'cards';
+    ['GC', 'YC', 'RC'].forEach((t) => { for (let i = 0; i < s[t]; i++) { const c = document.createElement('span'); c.className = 'cd ' + t; c.title = CARD_LABEL[t]; w.append(c); } });
+    if (!s.GC && !s.YC && !s.RC) w.textContent = '–';
+    td.append(w);
+  }
+
+  function drawTable() {
+    const tf = dash.params().plTeam || null;
+    const q = search.value.trim().toLowerCase();
+    const onlyMulti = multi.getAttribute('aria-pressed') === 'true';
+    let rows = players.map((r) => statsFor(r, tf)).filter((s) => s.apps > 0);
+    if (onlyMulti) rows = rows.filter((s) => s.teamsCount > 1);
+    if (q) rows = rows.filter((s) => s.name.toLowerCase().includes(q));
+    rows.sort((a, b) => (sortKey === 'name' ? d3.ascending(a.name, b.name) : d3.ascending(a[sortKey], b[sortKey])) * sortDir
+      || b.goals - a.goals || b.apps - a.apps || d3.ascending(a.name, b.name));
+    document.querySelectorAll('#pl-table th[data-sort]').forEach((th) => {
+      if (th.dataset.sort === sortKey) th.setAttribute('aria-sort', sortDir > 0 ? 'ascending' : 'descending'); else th.removeAttribute('aria-sort');
+    });
+    const tb = document.querySelector('#pl-table tbody'); tb.replaceChildren();
+    rows.forEach((s) => {
+      const tr = tb.insertRow(); tr.dataset.key = s.key; tr.className = 'click' + (s.key === selected ? ' sel' : '');
+      cell(tr, s.name);
+      const tc = cell(tr, '', 'hide-sm');
+      s.teams.sort((a, b) => teamOrder(a) - teamOrder(b)).forEach((t) => { const c = document.createElement('span'); c.className = 'tchip'; c.textContent = teamLabel(t); tc.append(c); });
+      cell(tr, s.apps, 'num'); cell(tr, s.goals, 'num');
+      cell(tr, s.FG, 'num hide-sm'); cell(tr, s.PC, 'num hide-sm'); cell(tr, s.PS, 'num hide-sm');
+      cardsCell(cell(tr, '', 'num'), s);
+    });
+    if (!rows.length) { const tr = tb.insertRow(); const td = cell(tr, players.length ? 'No players match.' : 'No match sheets collected yet.'); td.colSpan = 8; td.className = 'muted'; }
+  }
+
+  function drawDetail() {
+    const box = document.getElementById('player-detail');
+    const r = players.find((x) => x.key === selected);
+    box.hidden = !r; if (!r) return;
+    box.replaceChildren();
+    const s = statsFor(r, null);
+    const head = document.createElement('div'); head.className = 'pd-head';
+    const h = document.createElement('h2'); h.textContent = r.name;
+    const close = document.createElement('button'); close.className = 'linkbtn'; close.textContent = 'Close';
+    close.addEventListener('click', () => { selected = null; drawTable(); drawDetail(); });
+    head.append(h, close);
+    const sum = document.createElement('p'); sum.className = 'note';
+    sum.textContent = `${s.apps} appearance${s.apps === 1 ? '' : 's'} · ${s.goals} goal${s.goals === 1 ? '' : 's'}` +
+      (s.goals ? ` (${[['FG', 'field'], ['PC', 'PC'], ['PS', 'PS']].filter(([k]) => s[k]).map(([k, l]) => s[k] + ' ' + l).join(', ')})` : '') +
+      ` · played for ${s.teams.sort((a, b) => teamOrder(a) - teamOrder(b)).map(teamLabel).join(', ')}`;
+    const wrap = document.createElement('div'); wrap.className = 'twrap';
+    const t = document.createElement('table');
+    const hr = t.createTHead().insertRow();
+    ['Date', 'Team', 'Opponent', 'Score', 'Contribution'].forEach((l, i) => { const th = document.createElement('th'); th.textContent = l; if (i === 3) th.className = 'c'; hr.append(th); });
+    const tb = t.createTBody();
+    r.apps.forEach((a) => {
+      const m = a.match; const tr = tb.insertRow(); tr.className = 'click has-match';
+      const home = a.side === 'home';
+      const us = home ? m.homeScore : m.awayScore, them = home ? m.awayScore : m.homeScore;
+      cell(tr, fmtD(new Date(m.date))); cell(tr, teamLabel(a.team)); cell(tr, home ? m.away : m.home, 'opp');
+      cell(tr, us != null ? `${us}–${them}` : '', 'c');
+      const bits = a.p.events.map((e) => (GOAL.has(e.type) ? `${e.type === 'FG' ? 'Goal' : e.type} ${e.minute ?? ''}′` : `${CARD_LABEL[e.type] || e.type} ${e.minute ?? ''}′`).trim());
+      cell(tr, [a.p.gk ? 'GK' : '', a.p.capt ? 'Captain' : '', ...bits].filter(Boolean).join(' · '));
+      tr.addEventListener('click', () => window.openMatch(m.id, a.team));
+    });
+    wrap.append(t);
+    box.append(head, sum, wrap);
+  }
+
+  // ---------- Match dialog ----------
+  const dlg = document.getElementById('match-dlg');
+  document.getElementById('md-close').addEventListener('click', () => dlg.close());
+  dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+
+  window.openMatch = (id, teamId) => {
+    const m = window.bhcMatchById && window.bhcMatchById[id]; if (!m) return;
+    const body = document.getElementById('md-body'); body.replaceChildren();
+    const el = (tag, cls, text) => { const x = document.createElement(tag); if (cls) x.className = cls; if (text != null) x.textContent = text; return x; };
+    const isUs = (side) => !!(m.beeston && m.beeston[side]);
+    body.append(el('p', 'md-meta', [m.competition, d3.utcFormat('%A %-d %B %Y')(new Date(m.date)), m.venue].filter(Boolean).join(' · ')));
+    const sc = el('div', 'md-score');
+    const hn = el('div', 'tn home ' + (isUs('home') ? 'us' : 'them'), m.home); hn.id = 'md-title';
+    sc.append(hn, el('div', 'sc', m.homeScore != null ? `${m.homeScore} – ${m.awayScore}` : 'v'), el('div', 'tn away ' + (isUs('away') ? 'us' : 'them'), m.away));
+    body.append(sc);
+    if (m.note) body.append(el('p', 'md-meta', m.note));
+
+    // goals and cards in time order
+    const evs = [];
+    (m.teams || []).forEach((t) => t.players.forEach((p) => p.events.forEach((e) => evs.push({ side: t.side, p, e }))));
+    evs.sort((a, b) => (a.e.minute ?? 999) - (b.e.minute ?? 999));
+    const goals = evs.filter((x) => GOAL.has(x.e.type)), cards = evs.filter((x) => !GOAL.has(x.e.type));
+    const evList = (title, list) => {
+      if (!list.length) return;
+      const sec = el('div'); sec.append(el('p', 'md-h', title));
+      const g = el('div', 'md-goals');
+      list.forEach(({ side, p, e }) => {
+        const row = el('div', 'md-goal');
+        const who = el('span', side === 'away' ? 'r' : '');
+        who.append(p.name ? nice(p.name) : 'Name withheld');
+        const kind = GOAL_LABEL[e.type] || CARD_LABEL[e.type] || e.type;
+        if (e.type !== 'FG') { who.append(' '); who.append(el('span', 'gt', '(' + kind + ')')); }
+        if (CARD_LABEL[e.type]) { const c = el('span', 'cd ' + e.type); c.style.marginLeft = '6px'; who.append(c); }
+        const blank = el('span');
+        row.append(side === 'home' ? who : blank, el('span', 'min', e.minute != null ? e.minute + '′' : ''), side === 'away' ? who : blank);
+        g.append(row);
+      });
+      sec.append(g); body.append(sec);
+    };
+    evList('Goals', goals);
+    evList('Cards', cards);
+
+    if (m.teams && m.teams.length) {
+      const lu = el('div', 'md-lineups');
+      m.teams.forEach((t) => {
+        const col = el('div', 'md-lineup');
+        col.append(el('p', 'md-h', t.name + ' · ' + t.players.length));
+        const ol = el('ol');
+        t.players.forEach((p) => {
+          const li = el('li');
+          li.append(el('span', 'no', p.no != null ? '#' + p.no : ''));
+          const nm = el('span', 'nm' + (p.name ? '' : ' wh'), p.name ? nice(p.name) : 'Name withheld');
+          if (p.gk) nm.append(el('span', 'tag', 'GK'));
+          if (p.capt) nm.append(el('span', 'tag', 'C'));
+          li.append(nm);
+          const ev = el('span', 'ev');
+          p.events.forEach((e) => {
+            if (GOAL.has(e.type)) { const b = el('span', 'ball'); b.title = GOAL_LABEL[e.type]; ev.append(b); }
+            else { const c = el('span', 'cd ' + e.type); c.title = CARD_LABEL[e.type] || e.type; ev.append(c); }
+          });
+          li.append(ev);
+          ol.append(li);
+        });
+        col.append(ol); lu.append(col);
+      });
+      body.append(lu);
+      if (m.teams.length < 2) body.append(el('p', 'md-foot', 'Only one team’s line-up was published for this match.'));
+    } else {
+      body.append(el('p', 'md-foot', 'England Hockey hasn’t published line-ups for this match.'));
+    }
+    const foot = el('p', 'md-foot');
+    foot.append('Match sheet from ');
+    const a = el('a', null, 'England Hockey'); a.href = 'https://www.englandhockey.co.uk/fixtures/' + m.id; a.target = '_blank'; a.rel = 'noopener';
+    foot.append(a, '. Players who have asked England Hockey to withhold their name are shown as “Name withheld”.');
+    body.append(foot);
+    if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
+  };
+
+  // ---------- data hook ----------
+  let built = false;
+  dash.onData(() => {
+    const MT = dash.data('matches'), T = dash.data('teams');
+    if (MT.status !== 'ok' || T.status !== 'ok') return;
+    if (!built) {
+      build(MT.data, T.data); built = true;
+      const adult = T.data.filter((t) => t.group === 'Men' || t.group === 'Women');
+      selTeam.replaceChildren(new Option('All adult teams', ''), ...['Men', 'Women'].map((g) => {
+        const og = document.createElement('optgroup'); og.label = g;
+        adult.filter((t) => t.group === g).forEach((t) => og.append(new Option(t.label, t.team)));
+        return og;
+      }));
+      const withSheets = MT.data.filter((m) => m.teams && m.teams.length).length;
+      document.getElementById('pl-note').textContent = `Appearances, goals and cards for the adult teams, from ${withSheets} England Hockey match sheets. Click a player to see their games.`;
+      dash.setParams({});  // redraw the Team tab so its "Top scorers" line appears
+    }
+    selTeam.value = dash.params().plTeam || '';
+    if (dash.params().tab === 'players') { drawTable(); drawDetail(); }
+  });
+})();
 </script>
 </div>
 <footer class="site-foot">
